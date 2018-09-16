@@ -6,7 +6,7 @@
 ;; Maintainer: Nicolas Goaziou <mail@nicolasgoaziou.fr>
 ;; Keywords: convenience
 ;; Package-Requires: ((emacs "24.4"))
-;; Version: 1.8
+;; Version: 1.9
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -215,13 +215,16 @@ Otherwise, return nil."
 (defvar orgalist--menu nil
   "The Orgalist menu.")
 
+(defconst orgalist--bullet-re
+  "\\(?:[-+]\\|\\(?:[0-9]+\\|[A-Za-z]\\)\\.\\)\\(?:[ \t]+\\|$\\)"
+  "Match an item bullet.")
+
 (defconst orgalist--item-re
-  (concat
-   "^[ \t]*\\(\\(?:[-+]\\|\\(?:[0-9]+\\|[A-Za-z]\\)\\.\\)\\(?:[ \t]+\\|$\\)\\)"
-   "\\(?:\\[@\\([0-9]+\\|[A-Za-z]\\)\\][ \t]*\\)?"
-   "\\(?:\\(\\[[- xX]\\]\\)\\(?:[ \t]+\\|$\\)\\)?"
-   "\\(?:\\(.*\\)[ \t]+::\\(?:[ \t]+\\|$\\)\\)?")
-  "Match a list item and puts everything into groups:
+  (concat (format "^[ \t]*\\(%s\\)" orgalist--bullet-re)
+          "\\(?:\\[@\\([0-9]+\\|[A-Za-z]\\)\\][ \t]*\\)?"
+          "\\(?:\\(\\[[- xX]\\]\\)\\(?:[ \t]+\\|$\\)\\)?"
+          "\\(?:\\(.*\\)[ \t]+::\\(?:[ \t]+\\|$\\)\\)?")
+  "Match a list item and put everything into groups:
 group 1: bullet
 group 2: counter
 group 3: checkbox
@@ -257,11 +260,11 @@ Return nil if Orgalist mode is not active."
 
 (defun orgalist--at-item-p ()
   "Non-nil if point is at an item."
-  (and (orgalist--boundaries)            ;check context
-       (save-excursion
-         (beginning-of-line)
-         (looking-at-p
-          "[ \t]*\\(?:[-+]\\|\\(?:[a-zA-Z]\\|[0-9]+\\)\\.\\)\\([ \t]\\|$\\)"))))
+  (pcase (orgalist--boundaries)
+    (`(,min . ,max)
+     (and (<= min (point))
+          (>= max (point))
+          (org-match-line (concat "[ \t]*" orgalist--bullet-re))))))
 
 (defun orgalist--in-item-p ()
   "Return item beginning position when in a plain list, nil otherwise."
@@ -577,6 +580,25 @@ This function is meant to be used as a piece of advice on
              t))))
    (t nil)))
 
+(defun orgalist--fill-forward-wrapper (fill-forward-function &rest args)
+  "Fill forward paragraph wrapper.
+
+FILL-FORWARD-FUNCTION is the regular function used to move over
+paragraphs by the filling code.
+
+This function is meant to be used as a piece of advice on
+`fill-forward-paragraph-function'."
+  (if (save-excursion
+        (and (re-search-forward orgalist--bullet-re nil t)
+             (pcase (orgalist--boundaries)
+               (`(,min . ,max)
+                (and (<= min (point))
+                     (>= max (point)))))))
+      (let ((paragraph-start
+             (concat "[ \t]*" orgalist--bullet-re "\\|" paragraph-start)))
+        (apply fill-forward-function args))
+    (apply fill-forward-function args)))
+
 (defun orgalist--cycle-indentation ()
   "Cycle levels of indentation of an empty item.
 
@@ -611,14 +633,21 @@ The function assumes point is at an empty item."
        ((ignore-errors (org-list-indent-item-generic -1 t struct)))
        (t (user-error "No other meaningful indentation level"))))))
 
+(defun orgalist--item-nobreak-p ()
+  "Non-nil when a newline at point would create a new item."
+  (pcase (orgalist--boundaries)
+    (`(,min . ,max)
+     (and (<= min (point))
+          (> max (point))
+          (looking-at-p orgalist--bullet-re)))))
+
 (defun orgalist--when-at-item (cmd)
   "Return CMD when point is at a list item."
-  (when (and orgalist-mode (orgalist--at-item-p)) cmd))
+  (when (orgalist--at-item-p) cmd))
 
 (defun orgalist--when-at-empty-item (cmd)
   "Return CMD when point is at an empty list item."
-  (when (and orgalist-mode
-             (orgalist--at-item-p)
+  (when (and (orgalist--at-item-p)
              (org-match-line orgalist--item-re)
              (let ((start (line-beginning-position))
                    (reference-ind (current-indentation))
@@ -633,7 +662,7 @@ The function assumes point is at an empty item."
 
 (defun orgalist--when-in-item (cmd)
   "Return CMD when point is in a list item."
-  (when (and orgalist-mode (orgalist--in-item-p)) cmd))
+  (when (orgalist--in-item-p) cmd))
 
 
 ;;; Bindings and menu
@@ -784,6 +813,8 @@ C-c C-c         `orgalist-check-item'"
     (setq-local org-list-two-spaces-after-bullet-regexp nil)
     (setq-local org-list-use-circular-motion nil)
     (setq-local org-plain-list-ordered-item-terminator ?.)
+    (add-function :around (local 'fill-forward-paragraph-function)
+                  #'orgalist--fill-forward-wrapper)
     (add-function :before-until
                   (local 'fill-paragraph-function)
                   #'orgalist--fill-item)
@@ -798,6 +829,8 @@ C-c C-c         `orgalist-check-item'"
                   #'orgalist--auto-fill)
     (when auto-fill-function
       (add-function :around (local 'auto-fill-function) #'orgalist--auto-fill))
+    ;; Prevent Auto fill mode from creating new items.
+    (push 'orgalist--item-nobreak-p fill-nobreak-predicate)
     ;; FIXME: Workaround bug#31361.
     (unless (advice-member-p 'orgalist-fix-bug:31361 'indent-according-to-mode)
       (advice-add 'indent-according-to-mode
@@ -809,8 +842,12 @@ C-c C-c         `orgalist-check-item'"
                                   (funcall old))))
                   '((name . orgalist-fix-bug:31361)))))
    (t
+    (remove-function (local 'fill-forward-paragraph-function)
+                     #'orgalist--fill-forward-wrapper)
     (remove-function (local 'fill-paragraph-function) #'orgalist--fill-item)
     (remove-function (local 'indent-line-function) #'orgalist--indent-line)
+    (setq fill-nobreak-predicate
+          (delq 'orgalist--item-nobreak-p fill-nobreak-predicate))
     (remove-function (local 'normal-auto-fill-function) #'orgalist--auto-fill)
     (when auto-fill-function
       (remove-function (local 'auto-fill-function) #'orgalist--auto-fill))
