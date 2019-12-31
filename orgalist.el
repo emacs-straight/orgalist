@@ -6,7 +6,7 @@
 ;; Maintainer: Nicolas Goaziou <mail@nicolasgoaziou.fr>
 ;; Keywords: convenience
 ;; Package-Requires: ((emacs "24.4"))
-;; Version: 1.9
+;; Version: 1.10
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -818,6 +818,12 @@ C-c C-c         `orgalist-check-item'"
     (add-function :before-until
                   (local 'fill-paragraph-function)
                   #'orgalist--fill-item)
+    ;; Unless `indent-line-function' is buffer-local before it is
+    ;; advised with `add-function', the workaround for bug#31361 below
+    ;; will not work, as (advice--cd*r indent-line-function) will not
+    ;; compare `eq' to `indent-relative' in
+    ;; `indent-according-to-mode'.
+    (make-local-variable 'indent-line-function)
     (add-function :before-until
                   (local 'indent-line-function)
                   #'orgalist--indent-line)
