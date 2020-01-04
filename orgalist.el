@@ -1,12 +1,12 @@
 ;;; orgalist.el --- Manage Org-like lists in non-Org buffers  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2017, 2018  Free Software Foundation, Inc.
+;; Copyright (C) 2017-2020  Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <mail@nicolasgoaziou.fr>
 ;; Maintainer: Nicolas Goaziou <mail@nicolasgoaziou.fr>
 ;; Keywords: convenience
 ;; Package-Requires: ((emacs "24.4"))
-;; Version: 1.10
+;; Version: 1.11
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -527,17 +527,26 @@ is meant to be used as a piece of advice on both
           (if item? (orgalist--call-in-item fill-function item?)
             (funcall fill-function)))))))
 
-(defun orgalist--fill-item (justify)
+(defun orgalist--fill-item (fill-function justify)
   "Fill item as a paragraph.
 
-If JUSTIFY is non-nil, justify as well.
+FILL-FUNCTION is the regular function used for filling
+paragraphs, or nil.  If JUSTIFY is non-nil, justify as well.
 
 Return nil outside of a list.  This function is meant to be used
 as a piece of advice on `fill-paragraph-function'."
-  (let ((item? (orgalist--in-item-p)))
-    (when item?
-      (orgalist--call-in-item #'fill-paragraph item? justify)
-      t)))
+  (pcase (orgalist--in-item-p)
+    (`nil
+     ;; When `fill-paragraph-function' is nil in the current major
+     ;; mode (e.g.,in Text mode), the advice makes it look like
+     ;; a function anyway.  As a consequence, calling it results in an
+     ;; error.  Catch that error and call plain `fill-paragraph'
+     ;; instead.
+     (condition-case nil
+         (funcall fill-function justify)
+       (void-function (fill-paragraph justify))))
+    (item
+     (orgalist--call-in-item #'fill-paragraph item justify))))
 
 (defun orgalist--indent-line ()
   "Indent current line in an item.
@@ -815,8 +824,7 @@ C-c C-c         `orgalist-check-item'"
     (setq-local org-plain-list-ordered-item-terminator ?.)
     (add-function :around (local 'fill-forward-paragraph-function)
                   #'orgalist--fill-forward-wrapper)
-    (add-function :before-until
-                  (local 'fill-paragraph-function)
+    (add-function :around (local 'fill-paragraph-function)
                   #'orgalist--fill-item)
     ;; Unless `indent-line-function' is buffer-local before it is
     ;; advised with `add-function', the workaround for bug#31361 below
