@@ -6,7 +6,7 @@
 ;; Maintainer: Nicolas Goaziou <mail@nicolasgoaziou.fr>
 ;; Keywords: convenience
 ;; Package-Requires: ((emacs "24.4"))
-;; Version: 1.11
+;; Version: 1.12
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -240,7 +240,7 @@ group 4: description tag")
   "Call function FUN with buffer narrowed to item starting at POS.
 Call function with ARGUMENTS.  Return the value FUN returns."
   (let* ((struct (save-excursion (goto-char pos) (orgalist--struct)))
-         (next (org-list-has-child-p pos struct))
+         (next (org-list-get-item-end pos struct))
          (fill-prefix
           (make-string (+ (length (org-list-get-bullet pos struct))
                           (org-list-get-ind pos struct))
