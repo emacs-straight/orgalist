@@ -1,12 +1,12 @@
 ;;; orgalist.el --- Manage Org-like lists in non-Org buffers  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2017-2020  Free Software Foundation, Inc.
+;; Copyright (C) 2017-2024  Free Software Foundation, Inc.
 
 ;; Author: Nicolas Goaziou <mail@nicolasgoaziou.fr>
 ;; Maintainer: Nicolas Goaziou <mail@nicolasgoaziou.fr>
 ;; Keywords: convenience
 ;; Package-Requires: ((emacs "24.4"))
-;; Version: 1.13
+;; Version: 1.14
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -880,12 +880,12 @@ C-c C-c         `orgalist-check-item'"
     ;; FIXME: Workaround bug#31361.
     (unless (advice-member-p 'orgalist-fix-bug:31361 'indent-according-to-mode)
       (advice-add 'indent-according-to-mode
-                  :around (lambda (old)
+                  :around (lambda (old &rest r)
                             "Workaround bug#31361."
                             (or (orgalist--indent-line)
                                 (let ((indent-line-function
                                        (advice--cd*r indent-line-function)))
-                                  (funcall old))))
+                                  (funcall old r))))
                   '((name . orgalist-fix-bug:31361)))))
    (t
     (remove-function (local 'fill-forward-paragraph-function)
